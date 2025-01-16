@@ -294,7 +294,7 @@ class DocumentSearchSystem:
                     {"role": "system", "content": """Sen Rusça dokümanlar konusunda uzman bir asistansın. 
                     Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
                     Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin.
-                    Her zaman Türkçe cevap ver."""},
+                    Kullanıcının kullandığı dilde cevap ver."""},
                     {"role": "user", "content": f"Bağlam:\n{context}\n\nSoru: {question}"}
                 ],
                 headers={
