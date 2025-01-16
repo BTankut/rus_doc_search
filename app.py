@@ -12,6 +12,9 @@ import io
 import openai
 from dotenv import load_dotenv
 import json
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import torch
 
 # .env dosyasını yükle
 load_dotenv()
