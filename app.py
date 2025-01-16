@@ -238,20 +238,27 @@ class DocumentSearchSystem:
     def ask_ai(self, question: str, context: str) -> str:
         """GPT-4'e soru sor"""
         try:
-            response = openai.ChatCompletion.create(
-                model="openai/gpt-4",
-                messages=[
-                    {"role": "system", "content": """Sen Rusça dokümanlar konusunda uzman bir asistansın. 
-                    Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
-                    Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin."""},
-                    {"role": "user", "content": f"Bağlam:\n{context}\n\nSoru: {question}"}
-                ],
-                headers={
-                    "HTTP-Referer": "https://github.com/BTankut/rus_doc_search"
-                }
+            headers = {
+                "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
+                "Content-Type": "application/json"
+            }
+            
+            response = openai.Completion.create(
+                engine="openai/gpt-4",
+                prompt=f"""Sen Rusça dokümanlar konusunda uzman bir asistansın.
+                Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
+                Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin.
+                
+                Bağlam:
+                {context}
+                
+                Soru: {question}""",
+                max_tokens=1000,
+                temperature=0.7,
+                headers=headers
             )
             
-            return response.choices[0].message.content
+            return response.choices[0].text.strip()
             
         except Exception as e:
             return f"Üzgünüm, bir hata oluştu: {str(e)}"
