@@ -11,9 +11,7 @@ import PyPDF2
 import io
 import openai
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
-import torch
-import numpy as np
+import json
 
 # .env dosyasını yükle
 load_dotenv()
@@ -22,75 +20,63 @@ load_dotenv()
 openai.api_base = "https://openrouter.ai/api/v1"
 openai.api_key = os.getenv("OPENROUTER_API_KEY")
 
-# Sayfa yapılandırması
-st.set_page_config(
-    page_title="Rusça Doküman Arama",
-    page_icon="🔎",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': None,
-        'Report a bug': None,
-        'About': None
+# Dil çevirileri
+TRANSLATIONS = {
+    "tr": {
+        "title": "📚 Rusça Doküman Arama Sistemi",
+        "description": "PDF ve TXT formatındaki Rusça dokümanları yükleyin ve arama yapın.",
+        "upload_title": "📝 Doküman Yükleme",
+        "upload_label": "Rusça dokümanları yükleyin (PDF/TXT)",
+        "search_history": "🔍 Arama Geçmişi",
+        "search_tab": "🔍 Doküman Arama",
+        "ai_tab": "🤖 Yapay Zeka Sohbet",
+        "search_input": "🔍 Arama yapmak için bir kelime veya cümle girin:",
+        "ai_input": "💭 Dokümanlar hakkında bir soru sorun:",
+        "no_results": "⚠️ Sonuç bulunamadı.",
+        "results_found": "✨ {} sonuç bulundu!",
+        "result_title": "📄 Sonuç {} - {} (Parça {})",
+        "doc_stats": "📊 Doküman boyutu: {} | {} karakter",
+        "upload_first": "⚠️ Önce doküman yüklemelisiniz!",
+        "ai_thinking": "🤖 Yapay zeka düşünüyor...",
+        "error": "Üzgünüm, bir hata oluştu: {}"
+    },
+    "en": {
+        "title": "📚 Russian Document Search System",
+        "description": "Upload Russian documents in PDF and TXT format and search through them.",
+        "upload_title": "📝 Document Upload",
+        "upload_label": "Upload Russian documents (PDF/TXT)",
+        "search_history": "🔍 Search History",
+        "search_tab": "🔍 Document Search",
+        "ai_tab": "🤖 AI Chat",
+        "search_input": "🔍 Enter a word or phrase to search:",
+        "ai_input": "💭 Ask a question about the documents:",
+        "no_results": "⚠️ No results found.",
+        "results_found": "✨ {} results found!",
+        "result_title": "📄 Result {} - {} (Chunk {})",
+        "doc_stats": "📊 Document size: {} | {} characters",
+        "upload_first": "⚠️ Please upload documents first!",
+        "ai_thinking": "🤖 AI is thinking...",
+        "error": "Sorry, an error occurred: {}"
+    },
+    "ru": {
+        "title": "📚 Система поиска русских документов",
+        "description": "Загрузите русские документы в формате PDF и TXT и выполните поиск.",
+        "upload_title": "📝 Загрузка документов",
+        "upload_label": "Загрузите русские документы (PDF/TXT)",
+        "search_history": "🔍 История поиска",
+        "search_tab": "🔍 Поиск документов",
+        "ai_tab": "🤖 Чат с ИИ",
+        "search_input": "🔍 Введите слово или фразу для поиска:",
+        "ai_input": "💭 Задайте вопрос о документах:",
+        "no_results": "⚠️ Результаты не найдены.",
+        "results_found": "✨ Найдено {} результатов!",
+        "result_title": "📄 Результат {} - {} (Часть {})",
+        "doc_stats": "📊 Размер документа: {} | {} символов",
+        "upload_first": "⚠️ Сначала загрузите документы!",
+        "ai_thinking": "🤖 ИИ думает...",
+        "error": "Извините, произошла ошибка: {}"
     }
-)
-
-# Dark mode CSS
-st.markdown("""
-<style>
-    /* Dark mode renkleri */
-    :root {
-        --background-color: #1a1a1a;
-        --text-color: #ffffff;
-        --accent-color: #4CAF50;
-    }
-    
-    /* Ana stil */
-    .stApp {
-        background-color: var(--background-color);
-        color: var(--text-color);
-    }
-    
-    /* Sidebar */
-    .css-1d391kg {
-        background-color: #2d2d2d;
-    }
-    
-    /* Başlıklar */
-    h1, h2, h3 {
-        color: var(--accent-color) !important;
-    }
-    
-    /* Butonlar */
-    .stButton>button {
-        background-color: var(--accent-color);
-        color: white;
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 4px;
-    }
-    
-    /* Metin girişi */
-    .stTextInput>div>div>input {
-        background-color: #2d2d2d;
-        color: var(--text-color);
-        border: 1px solid #444;
-    }
-    
-    /* Dosya yükleme */
-    .stUploadButton>button {
-        background-color: #2d2d2d;
-        color: var(--text-color);
-        border: 1px solid #444;
-    }
-    
-    /* Sonuç kartları */
-    .stExpander {
-        background-color: #2d2d2d;
-        border: 1px solid #444;
-    }
-</style>
-""", unsafe_allow_html=True)
+}
 
 class DocumentSearchSystem:
     def __init__(self):
@@ -235,34 +221,32 @@ class DocumentSearchSystem:
         results.sort(key=lambda x: x['similarity'], reverse=True)
         return results[:10]  # En iyi 10 sonucu döndür
 
-    def ask_ai(self, question: str, context: str) -> str:
+    def ask_ai(self, question: str, context: str, lang: str = "tr") -> str:
         """GPT-4'e soru sor"""
         try:
-            headers = {
-                "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
-                "Content-Type": "application/json"
+            system_prompts = {
+                "tr": "Sen Rusça dokümanlar konusunda uzman bir asistansın. Verilen bağlamı kullanarak soruları Türkçe olarak detaylı bir şekilde cevaplayabilirsin.",
+                "en": "You are an expert assistant specializing in Russian documents. You can answer questions in English using the given context.",
+                "ru": "Вы - ассистент-эксперт по русским документам. Вы можете отвечать на вопросы на русском языке, используя предоставленный контекст."
             }
             
-            response = openai.Completion.create(
-                engine="openai/gpt-4",
-                prompt=f"""Sen Rusça dokümanlar konusunda uzman bir asistansın.
-                Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
-                Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin.
-                
-                Bağlam:
-                {context}
-                
-                Soru: {question}""",
-                max_tokens=1000,
-                temperature=0.7,
-                headers=headers
+            response = openai.ChatCompletion.create(
+                model="openai/gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompts[lang]},
+                    {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"}
+                ],
+                headers={
+                    "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
+                    "X-Title": "Russian Document Search"
+                }
             )
             
-            return response.choices[0].text.strip()
+            return response.choices[0].message.content
             
         except Exception as e:
-            return f"Üzgünüm, bir hata oluştu: {str(e)}"
-    
+            return TRANSLATIONS[lang]["error"].format(str(e))
+
 def format_size(size_bytes: int) -> str:
     """Boyutu okunabilir formata çevir"""
     for unit in ['B', 'KB', 'MB', 'GB']:
@@ -272,116 +256,87 @@ def format_size(size_bytes: int) -> str:
     return f"{size_bytes:.1f} TB"
 
 def main():
-    # Başlık ve versiyon göstergesi
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        st.title("📚 Rusça Doküman Arama Sistemi")
-    with col2:
-        st.markdown("""
-        <div style='background-color: #4CAF50; padding: 10px; border-radius: 5px; text-align: center;'>
-            <span style='color: white; font-weight: bold;'>📱 Streamlit v1.41.1</span>
-        </div>
-        """, unsafe_allow_html=True)
+    # Dil seçimi
+    if "lang" not in st.session_state:
+        st.session_state.lang = "tr"
+        
+    lang = st.sidebar.selectbox(
+        "🌐 Language / Язык / Dil",
+        ["Türkçe", "English", "Русский"],
+        index=["tr", "en", "ru"].index(st.session_state.lang)
+    )
     
-    # Browser kapatıldığında uygulamayı sonlandır
-    if not st.session_state.get("browser_connected"):
-        st.session_state.browser_connected = True
-        st.session_state.connection_time = time.time()
+    # Dil kodunu güncelle
+    st.session_state.lang = {"Türkçe": "tr", "English": "en", "Русский": "ru"}[lang]
     
-    # Her 5 saniyede bir bağlantıyı kontrol et
-    if time.time() - st.session_state.connection_time > 5:
-        st.session_state.connection_time = time.time()
-        if not st.session_state.browser_connected:
-            st.stop()
-            os._exit(0)
+    # Çevirileri al
+    t = TRANSLATIONS[st.session_state.lang]
     
-    # Oturum durumunu başlat
-    if 'search_system' not in st.session_state:
-        st.session_state.search_system = DocumentSearchSystem()
+    st.title(t["title"])
+    st.write(t["description"])
+    
+    system = DocumentSearchSystem()
     
     # Sol sidebar
     with st.sidebar:
-        st.header("📁 Doküman Yönetimi")
-        
-        # Dosya yükleme
+        st.header(t["upload_title"])
         uploaded_files = st.file_uploader(
-            "Rusça metin dosyalarını yükleyin (.txt, .pdf)",
-            type=['txt', 'pdf'],
+            t["upload_label"],
+            type=["txt", "pdf"],
             accept_multiple_files=True
         )
         
         if uploaded_files:
-            success_count = 0
             for file in uploaded_files:
-                if st.session_state.search_system.save_document(file):
-                    success_count += 1
-            
-            if success_count > 0:
-                st.success(f"✅ {success_count} Rusça doküman başarıyla yüklendi!")
-        
-        # Yüklü dokümanlar
-        st.subheader("📚 Yüklü Dokümanlar")
-        for doc in st.session_state.search_system.documents:
-            st.markdown(f"""
-            • **{doc['name']}** ({doc['type']})  
-            _{format_size(doc['size'])} | {doc['char_count']} karakter_  
-            Yükleme: {doc['upload_time']}
-            """)
-        
-        # Arama geçmişi
-        if st.session_state.search_system.search_history:
-            st.subheader("🕒 Arama Geçmişi")
-            for history in reversed(st.session_state.search_system.search_history[-5:]):
-                st.markdown(f"""
-                🔍 _{history['query']}_  
-                {history['time']}
-                """)
+                system.save_document(file)
+                
+        st.divider()
+        st.header(t["search_history"])
+        for h in system.search_history:
+            st.text(f"🕒 {h['time']}\n└ {h['query']}")
     
     # Ana içerik
-    tab1, tab2 = st.tabs(["🔍 Doküman Arama", "🤖 Yapay Zeka Sohbet"])
+    tab1, tab2 = st.tabs([t["search_tab"], t["ai_tab"]])
     
     # Arama sekmesi
     with tab1:
-        query = st.text_input(
-            "🔍 Arama yapmak için bir kelime veya cümle girin:"
-        )
+        query = st.text_input(t["search_input"])
         
         if query:
-            results = st.session_state.search_system.search_documents(query)
+            results = system.search_documents(query)
             
             if not results:
-                st.warning("⚠️ Sonuç bulunamadı.")
+                st.warning(t["no_results"])
             else:
-                st.success(f"✨ {len(results)} sonuç bulundu!")
+                st.success(t["results_found"].format(len(results)))
                 
                 for i, result in enumerate(results, 1):
                     with st.expander(
-                        f"📄 Sonuç {i} - {result['document']} "
-                        f"(Parça {result['chunk_index'] + 1})"
+                        t["result_title"].format(i, result['document'], result['chunk_index'] + 1)
                     ):
                         st.markdown(f"""
                         {result['text']}
                         
                         ---
-                        📊 _Doküman boyutu: {format_size(result['size'])} | {result['char_count']} karakter_
+                        {t["doc_stats"].format(format_size(result['size']), result['char_count'])}
                         """)
     
     # Yapay Zeka sekmesi
     with tab2:
-        if not st.session_state.search_system.documents:
-            st.warning("⚠️ Önce doküman yüklemelisiniz!")
+        if not system.documents:
+            st.warning(t["upload_first"])
         else:
-            question = st.text_input("💭 Dokümanlar hakkında bir soru sorun:")
+            question = st.text_input(t["ai_input"])
             
             if question:
                 # Tüm dokümanları birleştir
                 all_docs = "\n---\n".join([
-                    f"Doküman: {doc['name']}\nİçerik: {doc['content'][:1000]}"
-                    for doc in st.session_state.search_system.documents
+                    f"Document: {doc['name']}\nContent: {doc['content'][:1000]}"
+                    for doc in system.documents
                 ])
                 
-                with st.spinner("🤖 Yapay zeka düşünüyor..."):
-                    answer = st.session_state.search_system.ask_ai(question, all_docs)
+                with st.spinner(t["ai_thinking"]):
+                    answer = system.ask_ai(question, all_docs, st.session_state.lang)
                     st.write(answer)
 
 if __name__ == "__main__":
