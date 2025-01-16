@@ -15,109 +15,13 @@ from sentence_transformers import SentenceTransformer
 import torch
 from dotenv import load_dotenv
 import requests
+import chromadb
+from chromadb import PersistentClient
+from chromadb.config import Settings
+from chromadb.utils import embedding_functions
 
 # .env dosyasını yükle
 load_dotenv()
-
-# Sayfa yapılandırması
-st.set_page_config(
-    page_title="Rusça Doküman Arama",
-    page_icon="📚",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Dark mode CSS - Pastel Renkler
-st.markdown("""
-<style>
-    /* Dark mode renkleri - Pastel Tonlar */
-    :root {
-        --background-color: #1a1a2e;
-        --secondary-background: #242438;
-        --text-color: #e2e2e2;
-        --accent-color: #8b8bbd;
-        --accent-color-hover: #9d9dce;
-        --border-color: #34344a;
-    }
-    
-    /* Ana stil */
-    .stApp {
-        background-color: var(--background-color);
-        color: var(--text-color);
-    }
-    
-    /* Sidebar */
-    .css-1d391kg {
-        background-color: var(--secondary-background);
-    }
-    
-    /* Başlıklar */
-    h1, h2, h3 {
-        color: var(--accent-color) !important;
-    }
-    
-    /* Butonlar */
-    .stButton>button {
-        background-color: var(--accent-color) !important;
-        color: var(--text-color) !important;
-        border: none !important;
-        padding: 0.5rem 1rem !important;
-        border-radius: 4px !important;
-        transition: background-color 0.3s ease !important;
-    }
-    
-    .stButton>button:hover {
-        background-color: var(--accent-color-hover) !important;
-    }
-    
-    /* Metin girişi */
-    .stTextInput>div>div>input {
-        background-color: var(--secondary-background) !important;
-        color: var(--text-color) !important;
-        border: 1px solid var(--border-color) !important;
-    }
-    
-    /* Dosya yükleme */
-    .stUploadButton>button {
-        background-color: var(--secondary-background) !important;
-        color: var(--text-color) !important;
-        border: 1px solid var(--border-color) !important;
-    }
-    
-    /* Sonuç kartları */
-    .stExpander {
-        background-color: var(--secondary-background) !important;
-        border: 1px solid var(--border-color) !important;
-    }
-    
-    /* Seçim kutusu */
-    .stSelectbox>div>div {
-        background-color: var(--secondary-background) !important;
-        color: var(--text-color) !important;
-        border: 1px solid var(--border-color) !important;
-    }
-    
-    /* Divider */
-    .stDivider {
-        border-color: var(--border-color) !important;
-    }
-    
-    /* Tabs */
-    .stTabs {
-        background-color: var(--secondary-background) !important;
-        border: 1px solid var(--border-color) !important;
-    }
-    
-    .stTab {
-        color: var(--text-color) !important;
-    }
-    
-    .stTab[aria-selected="true"] {
-        background-color: var(--accent-color) !important;
-        color: var(--text-color) !important;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # Dil çevirileri
 TRANSLATIONS = {
@@ -151,6 +55,34 @@ class DocumentSearchSystem:
         
         # Doküman dizinini oluştur
         os.makedirs(self.doc_dir, exist_ok=True)
+        
+        # ChromaDB istemcisini başlat
+        try:
+            self.chroma_client = PersistentClient(path="chroma_db")
+        except Exception as e:
+            st.error(f"ChromaDB başlatma hatası: {str(e)}")
+            self.chroma_client = None
+            return
+        
+        # Koleksiyonu oluştur veya var olanı al
+        try:
+            self.sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name='DeepPavlov/rubert-base-cased-sentence'
+            )
+            
+            try:
+                self.collection = self.chroma_client.get_collection(
+                    name="russian_documents",
+                    embedding_function=self.sentence_transformer_ef
+                )
+            except:
+                self.collection = self.chroma_client.create_collection(
+                    name="russian_documents",
+                    embedding_function=self.sentence_transformer_ef
+                )
+        except Exception as e:
+            st.error(f"Koleksiyon oluşturma hatası: {str(e)}")
+            self.collection = None
         
         # Model yükleniyor mesajı
         if not st.session_state.get('model_loaded', False):
@@ -199,36 +131,97 @@ class DocumentSearchSystem:
                 return False
             
             # Rusça kontrolü
-            if detect(content) == 'ru':
-                # Dosyayı kaydet
-                save_path = os.path.join(self.doc_dir, file.name)
-                
-                # PDF ise orijinal dosyayı kopyala
-                if file_ext == '.pdf':
-                    file.seek(0)  # Dosya işaretçisini başa al
-                    with open(save_path, 'wb') as f:
-                        f.write(file.read())
-                else:
-                    with open(save_path, 'w', encoding='utf-8') as f:
-                        f.write(content)
-                    
-                self.documents.append({
-                    'name': file.name,
-                    'path': save_path,
-                    'content': content,
-                    'size': len(content.encode('utf-8')),
-                    'char_count': len(content),
-                    'type': 'PDF' if file_ext == '.pdf' else 'TXT',
-                    'upload_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                })
-                return True
-            else:
-                st.warning(f"⚠️ {file.name} Rusça değil!")
+            if not content or not detect(content) == 'ru':
+                st.warning("⚠️ Bu belge Rusça değil veya metin içermiyor!")
                 return False
-        except Exception as e:
-            st.error(f"❌ Hata: {file.name} dosyası işlenirken hata oluştu - {str(e)}")
-            return False
             
+            # Dokümanı parçalara ayır
+            chunks = [chunk for chunk in chunked(content.split('\n'), 5) if chunk]
+            chunks = ['\n'.join(chunk).strip() for chunk in chunks]
+            chunks = [chunk for chunk in chunks if chunk]  # Boş parçaları kaldır
+            
+            # ChromaDB'ye ekle
+            self.collection.add(
+                documents=chunks,
+                metadatas=[{"title": file.name} for _ in chunks],
+                ids=[f"{file.name}_{i}" for i in range(len(chunks))]
+            )
+            
+            # Bellek içi dokümanlara da ekle
+            document = {
+                'title': file.name,
+                'content': content,
+                'chunks': chunks,
+                'date_added': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            self.documents.append(document)
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"❌ Dosya kaydetme hatası: {str(e)}")
+            return False
+    
+    def search_documents(self, query: str, chunk_size: int = 500) -> List[Dict]:
+        """Dokümanlarda arama yap"""
+        try:
+            # Vektör araması
+            vector_results = self.collection.query(
+                query_texts=[query],
+                n_results=5
+            )
+            
+            # Metin tabanlı arama için regex pattern
+            pattern = re.compile(query, re.IGNORECASE)
+            
+            # Tüm dokümanları tara
+            text_results = []
+            for doc in self.documents:
+                for chunk in doc['chunks']:
+                    if pattern.search(chunk):
+                        text_results.append({
+                            'chunk': chunk,
+                            'title': doc['title'],
+                            'score': 1.0 if query.lower() in chunk.lower() else 0.8
+                        })
+            
+            # Sonuçları birleştir
+            combined_results = []
+            
+            # Vektör sonuçlarını ekle
+            if vector_results['documents']:
+                for doc, metadata, score in zip(
+                    vector_results['documents'][0],
+                    vector_results['metadatas'][0],
+                    vector_results['distances'][0]
+                ):
+                    combined_results.append({
+                        'chunk': doc,
+                        'title': metadata['title'],
+                        'score': 1 - score  # ChromaDB'de düşük mesafe = yüksek benzerlik
+                    })
+            
+            # Metin sonuçlarını ekle
+            combined_results.extend(text_results)
+            
+            # Tekrar eden sonuçları kaldır ve sırala
+            seen = set()
+            unique_results = []
+            for result in combined_results:
+                if result['chunk'] not in seen:
+                    seen.add(result['chunk'])
+                    unique_results.append(result)
+            
+            # Skora göre sırala
+            unique_results.sort(key=lambda x: x['score'], reverse=True)
+            
+            return unique_results[:5]  # En iyi 5 sonucu döndür
+            
+        except Exception as e:
+            st.error(f"❌ Arama hatası: {str(e)}")
+            return []
+    
     def highlight_text(self, text: str, query: str) -> str:
         """Metinde arama sorgusunu vurgula"""
         if not query:
@@ -237,53 +230,6 @@ class DocumentSearchSystem:
         pattern = re.compile(f'({re.escape(query)})', re.IGNORECASE)
         return pattern.sub(r'**\1**', text)
             
-    def search_documents(self, query: str, chunk_size: int = 500) -> List[Dict]:
-        """Dokümanlarda arama yap"""
-        if not query.strip():
-            return []
-            
-        # Arama geçmişine ekle
-        self.search_history.append({
-            'query': query,
-            'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-        self.search_history = self.search_history[-5:]  # Son 5 aramayı tut
-        
-        results = []
-        query_embedding = self.get_embedding(query)
-        
-        for doc in self.documents:
-            content = doc['content']
-            chunks = list(chunked(content, chunk_size))
-            
-            for i, chunk in enumerate(chunks):
-                chunk_text = ''.join(chunk)
-                
-                # Chunk'ın vektörünü hesapla veya cache'den al
-                chunk_key = f"{doc['name']}_{i}"
-                if chunk_key not in self.embeddings:
-                    self.embeddings[chunk_key] = self.get_embedding(chunk_text)
-                chunk_embedding = self.embeddings[chunk_key]
-                
-                # Benzerlik skorunu hesapla
-                similarity = self.compute_similarity(query_embedding, chunk_embedding)
-                
-                # Benzerlik skoru 0.5'ten büyükse sonuçlara ekle
-                if similarity > 0.5:
-                    results.append({
-                        'document': doc['name'],
-                        'text': chunk_text,
-                        'similarity': similarity,
-                        'chunk_index': i,
-                        'size': doc['size'],
-                        'char_count': doc['char_count'],
-                        'type': doc.get('type', 'TXT')
-                    })
-        
-        # Benzerlik skoruna göre sırala
-        results.sort(key=lambda x: x['similarity'], reverse=True)
-        return results[:10]  # En iyi 10 sonucu döndür
-
     def ask_ai(self, question: str, context: str) -> str:
         """GPT-4'e soru sor"""
         try:
@@ -433,13 +379,13 @@ def main():
                 
                 for i, result in enumerate(results, 1):
                     with st.expander(
-                        t["result_title"].format(i, result['document'], result['chunk_index'] + 1)
+                        t["result_title"].format(i, result['title'], 1)
                     ):
                         st.markdown(f"""
-                        {result['text']}
+                        {result['chunk']}
                         
                         ---
-                        {t["doc_stats"].format(format_size(result['size']), result['char_count'])}
+                        {t["doc_stats"].format(format_size(len(result['chunk'].encode('utf-8'))), len(result['chunk']))}
                         """)
     
     # Yapay Zeka sekmesi
@@ -452,7 +398,7 @@ def main():
             if question:
                 # Tüm dokümanları birleştir
                 all_docs = "\n---\n".join([
-                    f"Document: {doc['name']}\nContent: {doc['content'][:1000]}"
+                    f"Document: {doc['title']}\nContent: {doc['content'][:1000]}"
                     for doc in system.documents
                 ])
                 
