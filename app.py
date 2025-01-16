@@ -9,6 +9,9 @@ from datetime import datetime
 import time
 import PyPDF2
 import io
+from sentence_transformers import SentenceTransformer
+import torch
+import numpy as np
 
 # Sayfa yapılandırması
 st.set_page_config(
@@ -85,10 +88,31 @@ class DocumentSearchSystem:
         self.documents: List[Dict] = []
         self.doc_dir = "documents"
         self.search_history = []
+        self.model = None
+        self.embeddings = {}
         
         # Doküman dizinini oluştur
         os.makedirs(self.doc_dir, exist_ok=True)
         
+        # Model yükleniyor mesajı
+        if not st.session_state.get('model_loaded', False):
+            with st.spinner('🤖 Yapay zeka modeli yükleniyor... (İlk açılışta biraz zaman alabilir)'):
+                self.load_model()
+                st.session_state.model_loaded = True
+    
+    def load_model(self):
+        """Rusça dil modelini yükle"""
+        self.model = SentenceTransformer('DeepPavlov/rubert-base-cased-sentence')
+        
+    def get_embedding(self, text: str) -> np.ndarray:
+        """Metin için vektör oluştur"""
+        return self.model.encode(text, convert_to_tensor=True)
+    
+    def compute_similarity(self, query_embedding: torch.Tensor, text_embedding: torch.Tensor) -> float:
+        """Benzerlik skorunu hesapla"""
+        return torch.nn.functional.cosine_similarity(query_embedding.unsqueeze(0), 
+                                                   text_embedding.unsqueeze(0)).item()
+    
     def extract_pdf_text(self, file) -> str:
         """PDF dosyasından metin çıkar"""
         try:
@@ -156,42 +180,51 @@ class DocumentSearchSystem:
         return pattern.sub(r'**\1**', text)
             
     def search_documents(self, query: str, chunk_size: int = 500) -> List[Dict]:
-        results = []
-        
+        """Dokümanlarda arama yap"""
+        if not query.strip():
+            return []
+            
         # Arama geçmişine ekle
-        if query not in [h['query'] for h in self.search_history]:
-            self.search_history.append({
-                'query': query,
-                'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
+        self.search_history.append({
+            'query': query,
+            'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        self.search_history = self.search_history[-5:]  # Son 5 aramayı tut
+        
+        results = []
+        query_embedding = self.get_embedding(query)
         
         for doc in self.documents:
-            # Dokümanı parçalara ayır
-            chunks = list(chunked(doc['content'], chunk_size))
+            content = doc['content']
+            chunks = list(chunked(content, chunk_size))
             
-            # Her parçada arama yap
             for i, chunk in enumerate(chunks):
                 chunk_text = ''.join(chunk)
-                if query.lower() in chunk_text.lower():
-                    # Eşleşen bölümü bul
-                    start_pos = chunk_text.lower().find(query.lower())
-                    context_start = max(0, start_pos - 50)
-                    context_end = min(len(chunk_text), start_pos + len(query) + 50)
-                    context = chunk_text[context_start:context_end]
-                    
-                    # Metni vurgula
-                    highlighted_text = self.highlight_text(context, query)
-                    
+                
+                # Chunk'ın vektörünü hesapla veya cache'den al
+                chunk_key = f"{doc['name']}_{i}"
+                if chunk_key not in self.embeddings:
+                    self.embeddings[chunk_key] = self.get_embedding(chunk_text)
+                chunk_embedding = self.embeddings[chunk_key]
+                
+                # Benzerlik skorunu hesapla
+                similarity = self.compute_similarity(query_embedding, chunk_embedding)
+                
+                # Benzerlik skoru 0.5'ten büyükse sonuçlara ekle
+                if similarity > 0.5:
                     results.append({
-                        'name': doc['name'],
-                        'content': highlighted_text,
+                        'document': doc['name'],
+                        'text': chunk_text,
+                        'similarity': similarity,
                         'chunk_index': i,
-                        'total_chunks': len(chunks),
+                        'size': doc['size'],
                         'char_count': doc['char_count'],
-                        'size': doc['size']
+                        'type': doc.get('type', 'TXT')
                     })
-                    
-        return results
+        
+        # Benzerlik skoruna göre sırala
+        results.sort(key=lambda x: x['similarity'], reverse=True)
+        return results[:10]  # En iyi 10 sonucu döndür
 
 def format_size(size_bytes: int) -> str:
     """Boyutu okunabilir formata çevir"""
@@ -297,11 +330,11 @@ def main():
             
             for i, result in enumerate(results, 1):
                 with st.expander(
-                    f"📄 Sonuç {i} - {result['name']} "
-                    f"(Parça {result['chunk_index'] + 1}/{result['total_chunks']})"
+                    f"📄 Sonuç {i} - {result['document']} "
+                    f"(Parça {result['chunk_index'] + 1})"
                 ):
                     st.markdown(f"""
-                    {result['content']}
+                    {result['text']}
                     
                     ---
                     📊 _Doküman boyutu: {format_size(result['size'])} | {result['char_count']} karakter_
