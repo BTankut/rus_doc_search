@@ -19,12 +19,9 @@ import requests
 # .env dosyasını yükle
 load_dotenv()
 
-# OpenAI yapılandırması
-openai.api_base = "https://openrouter.ai/api/v1"
-
 # Sayfa yapılandırması
 st.set_page_config(
-    page_title="Russian Document Search",
+    page_title="Rusça Doküman Arama",
     page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded"
