@@ -9,12 +9,12 @@ from datetime import datetime
 import time
 import PyPDF2
 import io
-import openai
-from dotenv import load_dotenv
 import json
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import torch
+from dotenv import load_dotenv
+import requests
 
 # .env dosyasını yükle
 load_dotenv()
@@ -294,23 +294,36 @@ class DocumentSearchSystem:
             if not api_key:
                 return "API anahtarı bulunamadı. Lütfen .env dosyasını kontrol edin."
 
-            response = openai.ChatCompletion.create(
-                model="openai/gpt-4",
-                messages=[
-                    {"role": "system", "content": """Sen Rusça dokümanlar konusunda uzman bir asistansın. 
-                    Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
-                    Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin.
-                    Kullanıcının kullandığı dilde cevap ver."""},
-                    {"role": "user", "content": f"Bağlam:\n{context}\n\nSoru: {question}"}
-                ],
-                api_key=api_key,
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
                 headers={
+                    "Authorization": f"Bearer {api_key}",
                     "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
-                    "X-Title": "Russian Document Search"
+                    "X-Title": "Russian Document Search",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "openai/gpt-4",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": """Sen Rusça dokümanlar konusunda uzman bir asistansın. 
+                            Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
+                            Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin.
+                            Kullanıcının kullandığı dilde cevap ver."""
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Bağlam:\n{context}\n\nSoru: {question}"
+                        }
+                    ]
                 }
             )
             
-            return response.choices[0].message.content
+            if response.status_code == 200:
+                return response.json()['choices'][0]['message']['content']
+            else:
+                return f"API hatası: {response.status_code} - {response.text}"
             
         except Exception as e:
             return f"Üzgünüm, bir hata oluştu: {str(e)}"
