@@ -9,9 +9,18 @@ from datetime import datetime
 import time
 import PyPDF2
 import io
+import openai
+from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 import torch
 import numpy as np
+
+# .env dosyasını yükle
+load_dotenv()
+
+# OpenAI yapılandırması
+openai.api_base = "https://openrouter.ai/api/v1"
+openai.api_key = os.getenv("OPENROUTER_API_KEY")
 
 # Sayfa yapılandırması
 st.set_page_config(
@@ -226,6 +235,27 @@ class DocumentSearchSystem:
         results.sort(key=lambda x: x['similarity'], reverse=True)
         return results[:10]  # En iyi 10 sonucu döndür
 
+    def ask_ai(self, question: str, context: str) -> str:
+        """GPT-4'e soru sor"""
+        try:
+            response = openai.ChatCompletion.create(
+                model="openai/gpt-4",
+                messages=[
+                    {"role": "system", "content": """Sen Rusça dokümanlar konusunda uzman bir asistansın. 
+                    Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
+                    Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin."""},
+                    {"role": "user", "content": f"Bağlam:\n{context}\n\nSoru: {question}"}
+                ],
+                headers={
+                    "HTTP-Referer": "https://github.com/BTankut/rus_doc_search"
+                }
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            return f"Üzgünüm, bir hata oluştu: {str(e)}"
+    
 def format_size(size_bytes: int) -> str:
     """Boyutu okunabilir formata çevir"""
     for unit in ['B', 'KB', 'MB', 'GB']:
@@ -238,7 +268,7 @@ def main():
     # Başlık ve versiyon göstergesi
     col1, col2 = st.columns([4, 1])
     with col1:
-        st.title("🔎 Rusça Doküman Arama Sistemi")
+        st.title("📚 Rusça Doküman Arama Sistemi")
     with col2:
         st.markdown("""
         <div style='background-color: #4CAF50; padding: 10px; border-radius: 5px; text-align: center;'>
@@ -301,44 +331,51 @@ def main():
                 """)
     
     # Ana içerik
-    st.header("🔍 Arama")
+    tab1, tab2 = st.tabs(["🔍 Doküman Arama", "🤖 Yapay Zeka Sohbet"])
     
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
+    # Arama sekmesi
+    with tab1:
         query = st.text_input(
-            "Arama sorgusu (Rusça):",
-            placeholder="Aramak istediğiniz metni girin..."
+            "🔍 Arama yapmak için bir kelime veya cümle girin:"
         )
-    
-    with col2:
-        chunk_size = st.number_input(
-            "Parça boyutu:",
-            min_value=100,
-            max_value=1000,
-            value=500,
-            step=100
-        )
-    
-    if query:
-        results = st.session_state.search_system.search_documents(query, chunk_size)
         
-        if not results:
-            st.warning("⚠️ Sonuç bulunamadı.")
-        else:
-            st.success(f"✨ {len(results)} sonuç bulundu!")
+        if query:
+            results = st.session_state.search_system.search_documents(query)
             
-            for i, result in enumerate(results, 1):
-                with st.expander(
-                    f"📄 Sonuç {i} - {result['document']} "
-                    f"(Parça {result['chunk_index'] + 1})"
-                ):
-                    st.markdown(f"""
-                    {result['text']}
-                    
-                    ---
-                    📊 _Doküman boyutu: {format_size(result['size'])} | {result['char_count']} karakter_
-                    """)
+            if not results:
+                st.warning("⚠️ Sonuç bulunamadı.")
+            else:
+                st.success(f"✨ {len(results)} sonuç bulundu!")
+                
+                for i, result in enumerate(results, 1):
+                    with st.expander(
+                        f"📄 Sonuç {i} - {result['document']} "
+                        f"(Parça {result['chunk_index'] + 1})"
+                    ):
+                        st.markdown(f"""
+                        {result['text']}
+                        
+                        ---
+                        📊 _Doküman boyutu: {format_size(result['size'])} | {result['char_count']} karakter_
+                        """)
+    
+    # Yapay Zeka sekmesi
+    with tab2:
+        if not st.session_state.search_system.documents:
+            st.warning("⚠️ Önce doküman yüklemelisiniz!")
+        else:
+            question = st.text_input("💭 Dokümanlar hakkında bir soru sorun:")
+            
+            if question:
+                # Tüm dokümanları birleştir
+                all_docs = "\n---\n".join([
+                    f"Doküman: {doc['name']}\nİçerik: {doc['content'][:1000]}"
+                    for doc in st.session_state.search_system.documents
+                ])
+                
+                with st.spinner("🤖 Yapay zeka düşünüyor..."):
+                    answer = st.session_state.search_system.ask_ai(question, all_docs)
+                    st.write(answer)
 
 if __name__ == "__main__":
     main()
