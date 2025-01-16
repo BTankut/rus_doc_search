@@ -20,6 +20,106 @@ load_dotenv()
 openai.api_base = "https://openrouter.ai/api/v1"
 openai.api_key = os.getenv("OPENROUTER_API_KEY")
 
+# Sayfa yapılandırması
+st.set_page_config(
+    page_title="Russian Document Search",
+    page_icon="📚",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Dark mode CSS - Pastel Renkler
+st.markdown("""
+<style>
+    /* Dark mode renkleri - Pastel Tonlar */
+    :root {
+        --background-color: #1a1a2e;
+        --secondary-background: #242438;
+        --text-color: #e2e2e2;
+        --accent-color: #8b8bbd;
+        --accent-color-hover: #9d9dce;
+        --border-color: #34344a;
+    }
+    
+    /* Ana stil */
+    .stApp {
+        background-color: var(--background-color);
+        color: var(--text-color);
+    }
+    
+    /* Sidebar */
+    .css-1d391kg {
+        background-color: var(--secondary-background);
+    }
+    
+    /* Başlıklar */
+    h1, h2, h3 {
+        color: var(--accent-color) !important;
+    }
+    
+    /* Butonlar */
+    .stButton>button {
+        background-color: var(--accent-color) !important;
+        color: var(--text-color) !important;
+        border: none !important;
+        padding: 0.5rem 1rem !important;
+        border-radius: 4px !important;
+        transition: background-color 0.3s ease !important;
+    }
+    
+    .stButton>button:hover {
+        background-color: var(--accent-color-hover) !important;
+    }
+    
+    /* Metin girişi */
+    .stTextInput>div>div>input {
+        background-color: var(--secondary-background) !important;
+        color: var(--text-color) !important;
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    /* Dosya yükleme */
+    .stUploadButton>button {
+        background-color: var(--secondary-background) !important;
+        color: var(--text-color) !important;
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    /* Sonuç kartları */
+    .stExpander {
+        background-color: var(--secondary-background) !important;
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    /* Seçim kutusu */
+    .stSelectbox>div>div {
+        background-color: var(--secondary-background) !important;
+        color: var(--text-color) !important;
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    /* Divider */
+    .stDivider {
+        border-color: var(--border-color) !important;
+    }
+    
+    /* Tabs */
+    .stTabs {
+        background-color: var(--secondary-background) !important;
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    .stTab {
+        color: var(--text-color) !important;
+    }
+    
+    .stTab[aria-selected="true"] {
+        background-color: var(--accent-color) !important;
+        color: var(--text-color) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Dil çevirileri
 TRANSLATIONS = {
     "tr": {
@@ -39,42 +139,6 @@ TRANSLATIONS = {
         "upload_first": "⚠️ Önce doküman yüklemelisiniz!",
         "ai_thinking": "🤖 Yapay zeka düşünüyor...",
         "error": "Üzgünüm, bir hata oluştu: {}"
-    },
-    "en": {
-        "title": "📚 Russian Document Search System",
-        "description": "Upload Russian documents in PDF and TXT format and search through them.",
-        "upload_title": "📝 Document Upload",
-        "upload_label": "Upload Russian documents (PDF/TXT)",
-        "search_history": "🔍 Search History",
-        "search_tab": "🔍 Document Search",
-        "ai_tab": "🤖 AI Chat",
-        "search_input": "🔍 Enter a word or phrase to search:",
-        "ai_input": "💭 Ask a question about the documents:",
-        "no_results": "⚠️ No results found.",
-        "results_found": "✨ {} results found!",
-        "result_title": "📄 Result {} - {} (Chunk {})",
-        "doc_stats": "📊 Document size: {} | {} characters",
-        "upload_first": "⚠️ Please upload documents first!",
-        "ai_thinking": "🤖 AI is thinking...",
-        "error": "Sorry, an error occurred: {}"
-    },
-    "ru": {
-        "title": "📚 Система поиска русских документов",
-        "description": "Загрузите русские документы в формате PDF и TXT и выполните поиск.",
-        "upload_title": "📝 Загрузка документов",
-        "upload_label": "Загрузите русские документы (PDF/TXT)",
-        "search_history": "🔍 История поиска",
-        "search_tab": "🔍 Поиск документов",
-        "ai_tab": "🤖 Чат с ИИ",
-        "search_input": "🔍 Введите слово или фразу для поиска:",
-        "ai_input": "💭 Задайте вопрос о документах:",
-        "no_results": "⚠️ Результаты не найдены.",
-        "results_found": "✨ Найдено {} результатов!",
-        "result_title": "📄 Результат {} - {} (Часть {})",
-        "doc_stats": "📊 Размер документа: {} | {} символов",
-        "upload_first": "⚠️ Сначала загрузите документы!",
-        "ai_thinking": "🤖 ИИ думает...",
-        "error": "Извините, произошла ошибка: {}"
     }
 }
 
@@ -221,20 +285,17 @@ class DocumentSearchSystem:
         results.sort(key=lambda x: x['similarity'], reverse=True)
         return results[:10]  # En iyi 10 sonucu döndür
 
-    def ask_ai(self, question: str, context: str, lang: str = "tr") -> str:
+    def ask_ai(self, question: str, context: str) -> str:
         """GPT-4'e soru sor"""
         try:
-            system_prompts = {
-                "tr": "Sen Rusça dokümanlar konusunda uzman bir asistansın. Verilen bağlamı kullanarak soruları Türkçe olarak detaylı bir şekilde cevaplayabilirsin.",
-                "en": "You are an expert assistant specializing in Russian documents. You can answer questions in English using the given context.",
-                "ru": "Вы - ассистент-эксперт по русским документам. Вы можете отвечать на вопросы на русском языке, используя предоставленный контекст."
-            }
-            
             response = openai.ChatCompletion.create(
                 model="openai/gpt-4",
                 messages=[
-                    {"role": "system", "content": system_prompts[lang]},
-                    {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"}
+                    {"role": "system", "content": """Sen Rusça dokümanlar konusunda uzman bir asistansın. 
+                    Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
+                    Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin.
+                    Her zaman Türkçe cevap ver."""},
+                    {"role": "user", "content": f"Bağlam:\n{context}\n\nSoru: {question}"}
                 ],
                 headers={
                     "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
@@ -245,7 +306,7 @@ class DocumentSearchSystem:
             return response.choices[0].message.content
             
         except Exception as e:
-            return TRANSLATIONS[lang]["error"].format(str(e))
+            return f"Üzgünüm, bir hata oluştu: {str(e)}"
 
 def format_size(size_bytes: int) -> str:
     """Boyutu okunabilir formata çevir"""
@@ -262,12 +323,12 @@ def main():
         
     lang = st.sidebar.selectbox(
         "🌐 Language / Язык / Dil",
-        ["Türkçe", "English", "Русский"],
-        index=["tr", "en", "ru"].index(st.session_state.lang)
+        ["Türkçe"],
+        index=["tr"].index(st.session_state.lang)
     )
     
     # Dil kodunu güncelle
-    st.session_state.lang = {"Türkçe": "tr", "English": "en", "Русский": "ru"}[lang]
+    st.session_state.lang = {"Türkçe": "tr"}[lang]
     
     # Çevirileri al
     t = TRANSLATIONS[st.session_state.lang]
@@ -336,7 +397,7 @@ def main():
                 ])
                 
                 with st.spinner(t["ai_thinking"]):
-                    answer = system.ask_ai(question, all_docs, st.session_state.lang)
+                    answer = system.ask_ai(question, all_docs)
                     st.write(answer)
 
 if __name__ == "__main__":
