@@ -237,16 +237,12 @@ class DocumentSearchSystem:
             if not api_key:
                 return "API anahtarı bulunamadı. Lütfen .env dosyasını kontrol edin."
 
-            print(f"API Anahtarı: {api_key[:5]}...") # API anahtarının ilk 5 karakterini yazdır
-            
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
                 "X-Title": "Russian Document Search",
                 "Content-Type": "application/json"
             }
-            
-            print(f"Headers: {headers}")
             
             data = {
                 "model": "openai/gpt-4",
@@ -294,33 +290,30 @@ Lütfen yukarıdaki yeteneklerini kullanarak bu soruyu yanıtla."""
                     }
                 ]
             }
-            
-            print(f"Request Data: {json.dumps(data, indent=2)}")
 
             response = requests.post(
                 url="https://openrouter.ai/api/v1/chat/completions",
                 headers=headers,
-                json=data
+                json=data,
+                timeout=60
             )
-            
-            print(f"Response Status: {response.status_code}")
-            print(f"Response Text: {response.text}")
             
             if response.status_code == 200:
                 return response.json()['choices'][0]['message']['content']
             else:
-                return f"API hatası: {response.status_code} - {response.text}"
+                return f"API hatası: {response.status_code}"
             
         except Exception as e:
+            import sys
             return f"Üzgünüm, bir hata oluştu: {str(e)}"
-
-def format_size(size_bytes: int) -> str:
-    """Boyutu okunabilir formata çevir"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
+    
+    def format_size(self, size_bytes: int) -> str:
+        """Boyutu okunabilir formata çevir"""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024
+        return f"{size_bytes:.1f} TB"
 
 def main():
     # Dil seçimi
@@ -385,7 +378,7 @@ def main():
                         {result['chunk']}
                         
                         ---
-                        {t["doc_stats"].format(format_size(len(result['chunk'].encode('utf-8'))), len(result['chunk']))}
+                        {t["doc_stats"].format(system.format_size(len(result['chunk'].encode('utf-8'))), len(result['chunk']))}
                         """)
     
     # Yapay Zeka sekmesi
