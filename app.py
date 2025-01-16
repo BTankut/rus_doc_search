@@ -302,7 +302,8 @@ class DocumentSearchSystem:
                 ],
                 headers={
                     "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
-                    "X-Title": "Russian Document Search"
+                    "X-Title": "Russian Document Search",
+                    "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}"
                 }
             )
             
