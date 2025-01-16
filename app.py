@@ -291,31 +291,44 @@ class DocumentSearchSystem:
             if not api_key:
                 return "API anahtarı bulunamadı. Lütfen .env dosyasını kontrol edin."
 
+            print(f"API Anahtarı: {api_key[:5]}...") # API anahtarının ilk 5 karakterini yazdır
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
+                "X-Title": "Russian Document Search",
+                "Content-Type": "application/json"
+            }
+            
+            print(f"Headers: {headers}")
+            
+            data = {
+                "model": "openai/gpt-4",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": """Sen Rusça dokümanlar konusunda uzman bir asistansın. 
+                        Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
+                        Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin.
+                        Kullanıcının kullandığı dilde cevap ver."""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Bağlam:\n{context}\n\nSoru: {question}"
+                    }
+                ]
+            }
+            
+            print(f"Request Data: {json.dumps(data, indent=2)}")
+
             response = requests.post(
                 url="https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
-                    "X-Title": "Russian Document Search",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "openai/gpt-4",
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": """Sen Rusça dokümanlar konusunda uzman bir asistansın. 
-                            Verilen bağlamı kullanarak soruları detaylı bir şekilde cevaplayabilirsin.
-                            Rusça-Türkçe çeviri yapabilir, özetler çıkarabilir ve analiz edebilirsin.
-                            Kullanıcının kullandığı dilde cevap ver."""
-                        },
-                        {
-                            "role": "user",
-                            "content": f"Bağlam:\n{context}\n\nSoru: {question}"
-                        }
-                    ]
-                }
+                headers=headers,
+                json=data
             )
+            
+            print(f"Response Status: {response.status_code}")
+            print(f"Response Text: {response.text}")
             
             if response.status_code == 200:
                 return response.json()['choices'][0]['message']['content']
