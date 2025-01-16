@@ -21,7 +21,6 @@ load_dotenv()
 
 # OpenAI yapılandırması
 openai.api_base = "https://openrouter.ai/api/v1"
-openai.api_key = os.getenv("OPENROUTER_API_KEY")
 
 # Sayfa yapılandırması
 st.set_page_config(
@@ -291,6 +290,10 @@ class DocumentSearchSystem:
     def ask_ai(self, question: str, context: str) -> str:
         """GPT-4'e soru sor"""
         try:
+            api_key = os.getenv('OPENROUTER_API_KEY')
+            if not api_key:
+                return "API anahtarı bulunamadı. Lütfen .env dosyasını kontrol edin."
+
             response = openai.ChatCompletion.create(
                 model="openai/gpt-4",
                 messages=[
@@ -300,10 +303,10 @@ class DocumentSearchSystem:
                     Kullanıcının kullandığı dilde cevap ver."""},
                     {"role": "user", "content": f"Bağlam:\n{context}\n\nSoru: {question}"}
                 ],
+                api_key=api_key,
                 headers={
                     "HTTP-Referer": "https://github.com/BTankut/rus_doc_search",
-                    "X-Title": "Russian Document Search",
-                    "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}"
+                    "X-Title": "Russian Document Search"
                 }
             )
             
